@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: backend:latest
+          image: 195275640451.dkr.ecr.ap-south-1.amazonaws.com/backend
           ports:
             - containerPort: 5000
 ---
@@ -23,6 +23,7 @@ kind: Service
 metadata:
   name: backend
 spec:
+  type: ClusterIP
   selector:
     app: backend
   ports:
