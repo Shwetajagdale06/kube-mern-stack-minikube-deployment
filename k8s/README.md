@@ -1,1 +1,0 @@
-# kube-mern-stack-EKS-deployment
