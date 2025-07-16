@@ -1,0 +1,452 @@
+PERN stack (PostgreSQL + Express + React + Node.js).
+
+✅ Project Goal:
+A 3-tier PERN app that:
+Lets users add their name via a React frontend
+
+
+Sends that to Express + Node.js backend
+
+
+Saves it in a PostgreSQL database
+
+
+Is deployed on Kubernetes with Minikube
+
+
+Uses Ingress to expose the app
+
+
+Uses eval $(minikube docker-env) to build and use local Docker images
+📁 Final Project Structure:
+
+mern-postgres-k8s/
+├── backend/
+│   ├── Dockerfile
+│   ├── package.json
+│   └── index.js
+├── frontend/
+│   ├── Dockerfile
+│   ├── package.json
+│   └── src/
+│       └── App.js
+├── database/
+│   └── init.sql
+├── k8s/
+│   ├── backend-deployment.yaml
+│   ├── frontend-deployment.yaml
+│   ├── postgres-deployment.yaml
+│   ├── ingress.yaml
+│   └── namespace.yaml
+……………………………………………………………………………………………………
+
+
+frontend/
+├── package.json
+├── public/
+│   └── index.html 
+├── src/
+│   ├── App.js ✅
+│   └── index.js 
+└── Dockerfile✅
+
+__________________________________________________________________
+1️⃣ Set Minikube to use local Docker:
+
+minikube start
+eval $(minikube docker-env)
+
+2️⃣ PostgreSQL Init Script (database/init.sql
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+
+
+3️⃣ PostgreSQL Deployment (k8s/postgres-deployment.yaml)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          env:
+            - name: POSTGRES_DB
+              value: usersdb
+            - name: POSTGRES_USER
+              value: user
+            - name: POSTGRES_PASSWORD
+              value: password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - mountPath: /docker-entrypoint-initdb.d
+              name: init-volume
+      volumes:
+        - name: init-volume
+          configMap:
+            name: init-sql
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: init-sql
+data:
+  init.sql: |
+    CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL
+    );
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+
+…………………………………………………………………………………………………………………………………………………………………
+
+4️⃣ Backend Code (backend/index.js)
+const express = require("express");
+const bodyParser = require("body-parser");
+const { Pool } = require("pg");
+const cors = require("cors");
+
+const app = express();
+
+// ✅ Allow requests from frontend
+app.use(cors({
+  origin: "*", // or use "http://localhost:5173" or "http://mern.local"
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+}));
+
+app.use(bodyParser.json());
+
+const pool = new Pool({
+  host: "postgres",
+  user: "user",
+  password: "password",
+  database: "usersdb",
+  port: 5432,
+});
+
+app.post("/users", async (req, res) => {
+  const { name } = req.body;
+  await pool.query("INSERT INTO users (name) VALUES ($1)", [name]);
+  res.send("User added");
+});
+
+app.get("/users", async (req, res) => {
+  const result = await pool.query("SELECT * FROM users");
+  res.json(result.rows);
+});
+
+app.listen(5000, () => {
+  console.log("✅ Backend running on http://localhost:5000");
+});
+
+
+
+
+5️⃣ Backend Dockerfile (backend/package.json)
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "pg": "^8.11.1",
+    "body-parser": "^1.20.2"
+  }
+}
+
+
+
+
+
+5️⃣ Backend Dockerfile (backend/Dockerfile)
+FROM node:18
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 5000
+CMD ["node", "index.js"]
+
+………………………………………………………………………………………………………………………………………………………………….
+
+
+6️⃣ Frontend Code (frontend/src/App.js)
+import { useEffect, useState } from "react";
+import axios from "axios";
+
+function App() {
+  const [name, setName] = useState("");
+  const [users, setUsers] = useState([]);
+
+  const fetchUsers = async () => {
+    const res = await axios.get("/api/users");
+    setUsers(res.data);
+  };
+
+  const addUser = async () => {
+    await axios.post("/api/users", { name });
+    setName("");
+    fetchUsers();
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  return (
+    <div>
+      <h1>Add User</h1>
+      <input value={name} onChange={e => setName(e.target.value)} />
+      <button onClick={addUser}>Add</button>
+      <ul>
+        {users.map(u => (
+          <li key={u.id}>{u.name}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default App;
+
+
+
+7️⃣ Frontend Dockerfile (frontend/package.json)
+
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^1.6.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build"
+  }
+}
+
+
+7️⃣ Frontend Dockerfile (frontend/index.html)
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frontend</title>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
+7️⃣ Frontend Dockerfile (frontend/index.js)
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+
+
+
+
+
+
+
+7️⃣ Frontend Dockerfile (frontend/Dockerfile)
+
+FROM node:18 AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/build /usr/share/nginx/html
+
+
+…………………………………………………………………………………………………………………………………………………………………
+
+
+8️⃣ Backend Deployment (k8s/backend-deployment.yaml)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: backend:latest
+          ports:
+            - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 5000
+      targetPort: 5000
+
+
+
+
+
+
+
+9️⃣ Frontend Deployment (k8s/frontend-deployment.yaml)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: frontend:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+
+
+
+
+
+
+
+🔟 Ingress (k8s/ingress.yaml)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: mern.local
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 5000
+          - path: /()(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+
+
+
+
+
+
+🔁 Build Docker Images
+# Ensure you are in project root
+cd backend && docker build -t backend:latest .
+cd ../frontend && docker build -t frontend:latest .
+
+
+🏗 Deploy to Minikube
+kubectl apply -f k8s/
+minikube addons enable ingress
+
+🧪 Add to /etc/hosts
+Edit /etc/hosts:
+<minikube ip>   mern.local
+
+✅ Test in Browser
+Frontend
+Visit: http://mern.local 
+Backend 
+
+Visit : http://mern.local/api/users 
+
+
+3. (Optional) View Data from DB
+kubectl exec -it <postgres-pod-name> -- psql -U user -d usersdb
+
+
