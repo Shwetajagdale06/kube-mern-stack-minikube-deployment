@@ -1,1 +1,1 @@
-# kube-mern-stack-minikube-deployment
+# kube-mern-stack-minikube-production
